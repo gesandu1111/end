@@ -10,6 +10,9 @@ const qrcode = require('qrcode');
 const express = require('express');
 const fs = require('fs-extra');
 const pino = require('pino');
+const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+const cmd = text.toLowerCase().trim();
+const { downloadContentFromMessage } = require('@adiwajshing/baileys');
 
 const app = express();
 const PORT = 3000;
@@ -142,6 +145,63 @@ async function startBot() {
                 await sock.sendMessage(sender, { text: '❌ DP fetch failed.' });
             }
         }
+
+         // මැසේජ් එක reply එකක්ද සහ ඒක status එකක්ද කියා බලයි
+        if (cmd === '.send' || cmd === '.get') {
+    const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
+    const isStatus = msg.message.extendedTextMessage?.contextInfo?.participant === 'status@broadcast';
+
+    if (quotedMsg && isStatus) {
+        try {
+            const mType = Object.keys(quotedMsg)[0]; // imageMessage හෝ videoMessage
+            const media = quotedMsg[mType];
+            
+            // Media එක download කිරීම
+            const buffer = await downloadMedia(media, mType.replace('Message', ''));
+            
+            const caption = `✅ *Status Downloaded Successfully*`;
+
+            if (mType === 'imageMessage') {
+                await sock.sendMessage(sender, { image: buffer, caption: caption }, { quoted: msg });
+            } else if (mType === 'videoMessage') {
+                await sock.sendMessage(sender, { video: buffer, caption: caption, mimetype: 'video/mp4' }, { quoted: msg });
+            }
+        } catch (e) {
+            console.error(e);
+            await sock.sendMessage(sender, { text: '❌ Status එක download කිරීමට නොහැකි විය.' });
+        }
+    } else {
+        await sock.sendMessage(sender, { text: '❌ කරුණාකර ඕනෑම Status එකකට Reply එකක් ලෙස .send ලෙස යවන්න.' });
+    }
+}
+
+        // 1. මේ Import එක index.js එකේ ඉහළින්ම තිබිය යුතුයි
+const { downloadContentFromMessage } = require('@adiwajshing/baileys');
+
+/**
+ * WhatsApp Media (Image, Video, Audio) Download කරන පොදු Function එක
+ * @param {Object} message - ලැබුණු media message එක (eg: msg.message.imageMessage)
+ * @param {String} type - Media වර්ගය ('image', 'video', හෝ 'audio')
+ * @returns {Buffer} - Download වූ දත්ත (Buffer එකක් ලෙස)
+ */
+async function downloadMedia(message, type) {
+    try {
+        // WhatsApp සර්වර් එකෙන් දත්ත ලබා ගැනීම ආරම්භ කරයි
+        const stream = await downloadContentFromMessage(message, type);
+        let buffer = Buffer.from([]);
+
+        // කොටස් වශයෙන් (chunks) ලැබෙන දත්ත එකතු කරයි
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+        }
+
+        return buffer; // සම්පූර්ණ දත්ත ගොනුව ලබා දෙයි
+    } catch (e) {
+        console.error("Media Download Error: ", e);
+        return null;
+    }
+}
+        
 
         // --- 3. Status Download ---
         if (sender === 'status@broadcast') {
